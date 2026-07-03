@@ -35,3 +35,12 @@ jobs:
         with:
           name: frankenphp-windows-x86_64
           path: dist/frankenphp-windows-x86_64.exe
+      - name: Show static-php-cli logs
+        if: failure()
+        run: Get-Content dist\static-php-cli\log\spc.shell.log -Tail 300 -ErrorAction SilentlyContinue
+      - name: Upload static-php-cli logs
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: spc-logs
+          path: dist/static-php-cli/log/
