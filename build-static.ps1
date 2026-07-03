@@ -63,13 +63,13 @@ if ($env:CLEAN) {
 New-Item -ItemType Directory -Force -Path dist | Out-Null
 Set-Location dist
 
-# Fetch static-php-cli. FrankenPHP support for Windows requires the development version
-# (v3), so the "binary" release type downloads a nightly build.
+# Fetch static-php-cli. FrankenPHP support for Windows requires the v3 branch
+# (unreleased), so the "binary" release type downloads a v3 nightly build.
 if ($env:SPC_REL_TYPE -eq 'binary') {
     New-Item -ItemType Directory -Force -Path static-php-cli | Out-Null
     Set-Location static-php-cli
     if (-not (Test-Path spc.exe)) {
-        Invoke-WebRequest -Uri "https://dl.static-php.dev/static-php-cli/spc-bin/nightly/spc-windows-x64.exe" -OutFile spc.exe
+        Invoke-WebRequest -Uri "https://dl.static-php.dev/v3/spc-bin/nightly/spc-windows-x64.exe" -OutFile spc.exe
     }
     $spcCommand = Join-Path (Get-Location).Path 'spc.exe'
 } elseif (Test-Path static-php-cli/src) {
@@ -78,7 +78,7 @@ if ($env:SPC_REL_TYPE -eq 'binary') {
     composer install --no-dev -a --no-interaction
     $spcCommand = 'php'
 } else {
-    git clone --depth 1 https://github.com/crazywhalecc/static-php-cli --branch main
+    git clone --depth 1 https://github.com/crazywhalecc/static-php-cli --branch v3
     Set-Location static-php-cli
     composer install --no-dev -a --no-interaction
     $spcCommand = 'php'

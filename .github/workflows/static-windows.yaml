@@ -1,0 +1,37 @@
+name: Build Windows static binary
+on:
+  workflow_dispatch:
+    inputs:
+      extensions:
+        description: PHP extensions to build
+        required: false
+  push:
+    paths:
+      - build-static.ps1
+      - .github/workflows/static-windows.yaml
+  pull_request:
+    paths:
+      - build-static.ps1
+      - .github/workflows/static-windows.yaml
+permissions: {}
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  build:
+    name: windows-x86_64
+    runs-on: windows-latest
+    timeout-minutes: 180
+    env:
+      # A reduced extension set is used in CI to keep the build time reasonable
+      PHP_EXTENSIONS: ${{ inputs.extensions || 'bcmath,ctype,curl,dom,filter,fileinfo,iconv,mbstring,opcache,openssl,pdo,pdo_sqlite,phar,session,simplexml,sockets,sqlite3,tokenizer,xml,xmlreader,xmlwriter,zip,zlib' }}
+      PHP_EXTENSION_LIBS: nghttp2
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Build static binary
+        run: .\build-static.ps1
+      - name: Upload binary
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: frankenphp-windows-x86_64
+          path: dist/frankenphp-windows-x86_64.exe
