@@ -50,6 +50,7 @@ jobs:
             }
           }
           Remove-Item t.c, t.o -ErrorAction SilentlyContinue
+          exit 0
       - name: Build static binary
         run: .\build-static.ps1
       - name: Upload binary
