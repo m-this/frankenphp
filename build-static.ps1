@@ -163,11 +163,12 @@ int main(void)
         return 111;
     }
 
-    size_t len = wcslen(dir) + wcslen(base) + wcslen(cmd) + 8;
+    size_t len = wcslen(dir) + wcslen(base) + wcslen(cmd) + 32;
     wchar_t *out = malloc(len * sizeof(wchar_t));
     if (!out) return 111;
     swprintf(out, len, L"\"%s\\%s\"", dir, base);
 
+    int compiles = 0, links = 0;
     wchar_t *w = out + wcslen(out);
     wchar_t *p = cmd;
     while (*p) {
@@ -175,9 +176,15 @@ int main(void)
             p += 10;
             continue;
         }
+        if (wcsncmp(p, L" -c", 3) == 0 && (p[3] == L' ' || p[3] == L'\t' || p[3] == L'\0')) compiles = 1;
+        if (wcsncmp(p, L" -o", 3) == 0 && (p[3] == L' ' || p[3] == L'\t' || p[3] == L'\0')) links = 1;
         *w++ = *p++;
     }
     *w = L'\0';
+
+    /* php8embed.lib references PathCch* symbols but static-php-cli does not link
+       Pathcch.lib; add it to link invocations */
+    if (links && !compiles) wcscat(out, L" -lpathcch");
 
     STARTUPINFOW si = { sizeof(si) };
     PROCESS_INFORMATION pi;
@@ -233,7 +240,9 @@ if ($wrapperClang) {
     # library build systems (e.g. OpenSSL) would otherwise pick up the wrapper
     # and pass MSVC-style flags to Clang. Already-built packages are then skipped
     # by the FrankenPHP build below.
-    Invoke-Spc build:php-embed --enable-zts "--with-libs=$env:PHP_EXTENSION_LIBS" "$env:PHP_EXTENSIONS"
+    # --no-smoke-test: static-php-cli's embed smoke test links without Pathcch.lib,
+    # which PHP >= 8.5 requires, and fails; FrankenPHP itself is smoke-tested below
+    Invoke-Spc build:php-embed --enable-zts --no-smoke-test "--with-libs=$env:PHP_EXTENSION_LIBS" "$env:PHP_EXTENSIONS"
     $env:CCWRAP_DIR = $wrapperRealDir
     $env:CC = $wrapperClang
     $env:CXX = $wrapperClangxx
