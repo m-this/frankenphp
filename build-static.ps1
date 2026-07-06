@@ -100,6 +100,105 @@ if ($env:EMBED -and -not [System.IO.Path]::IsPathRooted($env:EMBED)) {
     $env:EMBED = Join-Path $currentDir $env:EMBED
 }
 
+# Go unconditionally passes the MinGW-only -mthreads flag to the C compiler when
+# building cgo code on Windows (https://github.com/golang/go/issues/16932), and
+# recent Clang versions reject it when targeting MSVC. When the Clang in use does,
+# build a transparent wrapper that strips the flag before forwarding to Clang.
+$clang = $null
+if ($env:CC -and (Test-Path $env:CC)) {
+    $clang = (Resolve-Path $env:CC).Path
+} elseif ($cmd = Get-Command clang.exe -ErrorAction SilentlyContinue) {
+    $clang = $cmd.Source
+} else {
+    $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+    if (Test-Path $vswhere) {
+        $vs = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Llvm.Clang -property installationPath
+        if ($vs -and (Test-Path "$vs\VC\Tools\Llvm\x64\bin\clang.exe")) {
+            $clang = "$vs\VC\Tools\Llvm\x64\bin\clang.exe"
+        }
+    }
+}
+if ($clang) {
+    Set-Content probe_mthreads.c 'int main(void){return 0;}'
+    & $clang -mthreads -c probe_mthreads.c -o probe_mthreads.o 2>$null
+    $needsWrapper = ($LASTEXITCODE -ne 0)
+    Remove-Item probe_mthreads.c, probe_mthreads.o -ErrorAction SilentlyContinue
+    if ($needsWrapper) {
+        Write-Host "Clang rejects -mthreads; building a wrapper stripping it around $clang"
+        New-Item -ItemType Directory -Force -Path ccwrap | Out-Null
+        Set-Content ccwrap\ccwrap.c @'
+#include <windows.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <wchar.h>
+
+/* Transparent compiler wrapper: forwards to the real Clang of the same name
+   located in the CCWRAP_DIR directory, dropping the MinGW-only -mthreads flag
+   that Go passes unconditionally on Windows (golang/go#16932) and that Clang
+   rejects when targeting MSVC. */
+
+int main(void)
+{
+    wchar_t *cmd = GetCommandLineW();
+
+    /* skip our own argv[0] */
+    if (*cmd == L'"') {
+        cmd++;
+        while (*cmd && *cmd != L'"') cmd++;
+        if (*cmd) cmd++;
+    } else {
+        while (*cmd && *cmd != L' ' && *cmd != L'\t') cmd++;
+    }
+
+    wchar_t self[MAX_PATH];
+    GetModuleFileNameW(NULL, self, MAX_PATH);
+    wchar_t *base = wcsrchr(self, L'\\');
+    base = base ? base + 1 : self;
+
+    wchar_t dir[MAX_PATH];
+    DWORD n = GetEnvironmentVariableW(L"CCWRAP_DIR", dir, MAX_PATH);
+    if (n == 0 || n >= MAX_PATH) {
+        fwprintf(stderr, L"ccwrap: CCWRAP_DIR is not set\n");
+        return 111;
+    }
+
+    size_t len = wcslen(dir) + wcslen(base) + wcslen(cmd) + 8;
+    wchar_t *out = malloc(len * sizeof(wchar_t));
+    if (!out) return 111;
+    swprintf(out, len, L"\"%s\\%s\"", dir, base);
+
+    wchar_t *w = out + wcslen(out);
+    wchar_t *p = cmd;
+    while (*p) {
+        if (wcsncmp(p, L" -mthreads", 10) == 0 && (p[10] == L' ' || p[10] == L'\t' || p[10] == L'\0')) {
+            p += 10;
+            continue;
+        }
+        *w++ = *p++;
+    }
+    *w = L'\0';
+
+    STARTUPINFOW si = { sizeof(si) };
+    PROCESS_INFORMATION pi;
+    if (!CreateProcessW(NULL, out, NULL, NULL, TRUE, 0, NULL, NULL, &si, &pi)) {
+        fwprintf(stderr, L"ccwrap: failed to run %s\n", out);
+        return 112;
+    }
+    WaitForSingleObject(pi.hProcess, INFINITE);
+    DWORD code = 113;
+    GetExitCodeProcess(pi.hProcess, &code);
+    return (int) code;
+}
+'@
+        & $clang -O2 ccwrap\ccwrap.c -o ccwrap\clang.exe
+        if ($LASTEXITCODE -ne 0) { Write-Error 'Failed to build the Clang wrapper.' }
+        Copy-Item ccwrap\clang.exe ccwrap\clang++.exe -Force
+        $env:CCWRAP_DIR = Split-Path $clang
+        $env:CC = Join-Path (Get-Location).Path 'ccwrap\clang.exe'
+        $env:CXX = Join-Path (Get-Location).Path 'ccwrap\clang++.exe'
+    }
+}
+
 # Extensions to build
 if (-not $env:PHP_EXTENSIONS) {
     if ($env:EMBED -and (Test-Path "$env:EMBED/composer.json") -and (Test-Path "$env:EMBED/composer.lock") -and (Test-Path "$env:EMBED/vendor/composer/installed.json")) {
