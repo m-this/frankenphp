@@ -26,6 +26,8 @@ jobs:
       # A reduced extension set is used in CI to keep the build time reasonable
       PHP_EXTENSIONS: ${{ inputs.extensions || 'bcmath,ctype,curl,dom,filter,fileinfo,iconv,mbstring,opcache,openssl,pdo,pdo_sqlite,phar,session,simplexml,sockets,sqlite3,tokenizer,xml,xmlreader,xmlwriter,zip,zlib' }}
       PHP_EXTENSION_LIBS: nghttp2
+      # Authenticate static-php-cli's GitHub API calls to avoid rate limiting
+      GITHUB_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: Build static binary
