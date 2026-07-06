@@ -37,7 +37,26 @@ jobs:
           go-version: stable
           cache: false
       - run: go version
+      - name: Probe clang -mthreads support
+        run: |
+          'int main(void){return 0;}' | Set-Content t.c
+          foreach ($c in @("C:\Program Files\LLVM\bin\clang.exe", "C:\Program Files\Microsoft Visual Studio\18\Enterprise\VC\Tools\Llvm\x64\bin\clang.exe")) {
+            if (Test-Path $c) {
+              & $c --version | Select-Object -First 1
+              & $c -mthreads -c t.c -o t.o 2>&1 | Select-Object -First 2
+              "exit=$LASTEXITCODE"
+            } else {
+              "missing: $c"
+            }
+          }
+          Remove-Item t.c, t.o -ErrorAction SilentlyContinue
       - name: Build static binary
+        env:
+          # Go unconditionally passes the MinGW-only -mthreads flag to the C compiler on
+          # Windows; Visual Studio's bundled Clang rejects it while the standalone LLVM
+          # Clang only warns. Use the latter, like FrankenPHP's own Windows CI does.
+          CC: C:\Program Files\LLVM\bin\clang.exe
+          CXX: C:\Program Files\LLVM\bin\clang++.exe
         run: .\build-static.ps1
       - name: Upload binary
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
