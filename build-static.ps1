@@ -105,6 +105,7 @@ if ($env:EMBED -and -not [System.IO.Path]::IsPathRooted($env:EMBED)) {
 # recent Clang versions reject it when targeting MSVC. When the Clang in use does,
 # build a transparent wrapper that strips the flag before forwarding to Clang.
 $clang = $null
+$wrapperClang = $null
 if ($env:CC -and (Test-Path $env:CC)) {
     $clang = (Resolve-Path $env:CC).Path
 } elseif ($cmd = Get-Command clang.exe -ErrorAction SilentlyContinue) {
@@ -193,9 +194,9 @@ int main(void)
         & $clang -O2 ccwrap\ccwrap.c -o ccwrap\clang.exe
         if ($LASTEXITCODE -ne 0) { Write-Error 'Failed to build the Clang wrapper.' }
         Copy-Item ccwrap\clang.exe ccwrap\clang++.exe -Force
-        $env:CCWRAP_DIR = Split-Path $clang
-        $env:CC = Join-Path (Get-Location).Path 'ccwrap\clang.exe'
-        $env:CXX = Join-Path (Get-Location).Path 'ccwrap\clang++.exe'
+        $wrapperClang = Join-Path (Get-Location).Path 'ccwrap\clang.exe'
+        $wrapperClangxx = Join-Path (Get-Location).Path 'ccwrap\clang++.exe'
+        $wrapperRealDir = Split-Path $clang
     }
 }
 
@@ -226,6 +227,17 @@ $downloadArgs = $env:SPC_OPT_DOWNLOAD_ARGS -split ' ' | Where-Object { $_ }
 # Build FrankenPHP
 Invoke-Spc doctor --auto-fix
 Invoke-Spc download "--with-php=$env:PHP_VERSION" "--for-extensions=$env:PHP_EXTENSIONS" "--for-libs=$env:PHP_EXTENSION_LIBS" @downloadArgs
+if ($wrapperClang) {
+    # First build PHP and all libraries with the pristine MSVC toolchain: the CC
+    # override must only be visible to the cgo build of FrankenPHP itself, as
+    # library build systems (e.g. OpenSSL) would otherwise pick up the wrapper
+    # and pass MSVC-style flags to Clang. Already-built packages are then skipped
+    # by the FrankenPHP build below.
+    Invoke-Spc build:php-embed --enable-zts "--with-libs=$env:PHP_EXTENSION_LIBS" "$env:PHP_EXTENSIONS"
+    $env:CCWRAP_DIR = $wrapperRealDir
+    $env:CC = $wrapperClang
+    $env:CXX = $wrapperClangxx
+}
 Invoke-Spc build:frankenphp --enable-zts "--with-libs=$env:PHP_EXTENSION_LIBS" @buildArgs "$env:PHP_EXTENSIONS"
 
 if ($env:CI) {
