@@ -240,9 +240,11 @@ if ($wrapperClang) {
     # library build systems (e.g. OpenSSL) would otherwise pick up the wrapper
     # and pass MSVC-style flags to Clang. Already-built packages are then skipped
     # by the FrankenPHP build below.
+    # pthreads4w is normally built as a dependency of frankenphp; build it in this
+    # phase too, as its nmake -E build would also pick up the CC override.
     # --no-smoke-test: static-php-cli's embed smoke test links without Pathcch.lib,
     # which PHP >= 8.5 requires, and fails; FrankenPHP itself is smoke-tested below
-    Invoke-Spc build:php-embed --enable-zts --no-smoke-test "--with-libs=$env:PHP_EXTENSION_LIBS" "$env:PHP_EXTENSIONS"
+    Invoke-Spc build:php-embed --enable-zts --no-smoke-test "--with-libs=$env:PHP_EXTENSION_LIBS,pthreads4w" "$env:PHP_EXTENSIONS"
     $env:CCWRAP_DIR = $wrapperRealDir
     $env:CC = $wrapperClang
     $env:CXX = $wrapperClangxx
